@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SSD 规格与性能数据库 · 固态硬盘天梯榜</title>
+<meta name="description" content="收录 250+ 款固态硬盘的完整规格与实测跑分，支持按品牌、接口、容量、颗粒筛选，多盘横向对比。">
+<link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<header class="site-header" data-header></header>
+
+<div class="container">
+  <div class="layout">
+    <!-- ---------------- 筛选侧栏（宽屏常驻；≤1000px 才变成抽屉） ---------------- -->
+    <aside>
+      <div class="filters" id="filters">
+        <div class="filters-head">
+          <h2>筛选</h2>
+          <span class="spacer"></span>
+          <button class="btn btn-sm btn-ghost" id="resetFilters">重置</button>
+          <button class="btn btn-sm btn-ghost drawer-close" id="filterClose" title="收起筛选">收起 ✕</button>
+        </div>
+        <div id="chips" class="chips" style="display:none"></div>
+        <div id="filterGroups"></div>
+      </div>
+    </aside>
+    <div class="drawer-backdrop" id="drawerBackdrop"></div>
+
+    <!-- ---------------- 主区 ---------------- -->
+    <main>
+      <div class="toolbar">
+        <button class="btn btn-sm" id="filterToggle" aria-expanded="false" aria-controls="filters">
+          筛选<span class="filter-badge" id="filterBadge" hidden>0</span>
+        </button>
+        <span class="count">共 <b id="countNum">0</b> 款硬盘</span>
+        <span class="spacer"></span>
+        <label class="field">排序
+          <select class="control" id="sortBy">
+            <option value="rank">综合排名（天梯）</option>
+            <option value="overall">综合评分</option>
+            <option value="bandwidth">读写速度比</option>
+            <option value="latency">响应速度比</option>
+            <option value="theoretical">理论性能比</option>
+            <option value="seqRead">标称顺序读取</option>
+            <option value="cdmSeqR">CDM 实测顺序读取</option>
+            <option value="cdm4kR">CDM 实测 4K 随机读</option>
+            <option value="capacityGB">容量</option>
+          </select>
+        </label>
+        <label class="field">指标
+          <select class="control" id="metricSel">
+            <option value="overall">综合评分</option>
+            <option value="bandwidth">读写速度比</option>
+            <option value="latency">响应速度比</option>
+            <option value="theoretical">理论性能比</option>
+            <option value="cdmSeqR">CDM 顺序读取 (MB/s)</option>
+            <option value="cdmSeqW">CDM 顺序写入 (MB/s)</option>
+            <option value="cdm4kR">CDM 4K 随机读 Q8T8</option>
+            <option value="asssdSeqR">AS SSD 顺序读取</option>
+            <option value="accR">AS SSD 访问延迟(读, 越低越好)</option>
+          </select>
+        </label>
+        <div class="seg" id="viewSeg">
+          <button data-view="ladder" class="on">天梯图</button>
+          <button data-view="table">列表</button>
+        </div>
+      </div>
+
+      <div id="results" class="panel">
+        <div class="loading">正在加载数据…</div>
+      </div>
+
+      <div class="pager" id="pager"></div>
+    </main>
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div class="container">
+    <span>SSD 规格与性能数据库 · 数据由站长实测整理</span>
+    <span><a href="about.html">测试方法</a> · <a href="compare.html">多盘对比</a></span>
+  </div>
+</footer>
+
+<script src="assets/js/core.js"></script>
+<script src="assets/js/chart.js"></script>
+<script src="assets/js/home.js"></script>
+</body>
+</html>
