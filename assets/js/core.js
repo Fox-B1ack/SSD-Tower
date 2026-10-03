@@ -68,6 +68,14 @@ const Fmt = {
     if (v === null || v === undefined) return '—';
     return Fmt.n(v, 0);
   },
+  // ---- 各跑分软件的小数位口径（与 tools/build_data.py 取整一致）----
+  //  CDM      ：全部 1 位小数
+  //  AS SSD   ：吞吐 2 位、延迟 3 位
+  //  TX-Bench ：速度 / 延迟均 2 位小数
+  cdm(v) { return Fmt.n(v, 1); },
+  asssdSpeed(v) { return Fmt.n(v, 2); },
+  asssdMs(v) { return Fmt.n(v, 3); },
+  tx(v) { return Fmt.n(v, 2); },
   dash(v) { return (v === null || v === undefined || v === '') ? '—' : v; }
 };
 
@@ -289,7 +297,7 @@ function benchGroupCard(g) {
       Chart.groupBar(el, {
         categories: m.cats, series: m.series, logScale: benchMode === 'log',
         showValues: m.series.length <= 2,
-        valueFormat: v => (g.unit === 'ms' ? Fmt.ms(v) : Fmt.auto(v))
+        valueFormat: g.fmt || (v => (g.unit === 'ms' ? Fmt.ms(v) : Fmt.auto(v)))
       });
     }
   };
@@ -316,7 +324,7 @@ function renderBenchGroups(host, groups) {
           title: s.title, sub: s.note, dir: g.better, shape: 'bar',
           draw: el => Chart.hbar(el, {
             items: s.items, rowH: s.rowH || 26, barColor: s.barColor,
-            max: s.max, format: g.unit === 'ms' ? Fmt.ms : Fmt.auto
+            max: s.max, format: g.fmt || (g.unit === 'ms' ? Fmt.ms : Fmt.auto)
           })
         });
       });

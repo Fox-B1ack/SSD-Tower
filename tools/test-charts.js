@@ -153,9 +153,14 @@ async function open(url, wait = 2500, beforeParse) {
     'n=' + asssdPane.querySelectorAll('#asssdBench .chart svg').length);
   ok(asssdPane.textContent.includes('↓ 越低越好'), '延迟图标注越低越好');
   const cdmPane = d.doc.querySelector('[data-pane=cdm]');
-  ok(cdmPane.querySelectorAll('#cdmCharts .chart svg').length === 2,
-    '分项模式下 CDM 页两张图（行式分项 + 队列深度）',
+  ok(cdmPane.querySelectorAll('#cdmCharts .chart svg').length === 3,
+    '分项模式下 CDM 页三张图（顺序吞吐 + 4K 随机吞吐两项，形态与 AS SSD 一致；加队列深度）',
     'n=' + cdmPane.querySelectorAll('#cdmCharts .chart svg').length);
+  // CDM 分项模式不再用 multiHBar（盘名在条内 + ★ 对比），
+  // 与 AS SSD / TX 一样改用 hbar：条内只有纯色块、字号/数值都在条外
+  ok(cdmPane.querySelectorAll('#cdmCharts svg').length === 3 &&
+     ![...cdmPane.querySelectorAll('#cdmCharts svg text')].some(t => t.textContent.includes('★')),
+    '分项模式下 CDM 不再画「盘内对比」★ 标记（与 AS SSD / TX 统一）');
 
   // 合并模式：同一组指标合成一张图，可选线性 / 对数
   d.doc.querySelector('#modeBar button[data-mode=log]').click();
@@ -433,6 +438,17 @@ async function open(url, wait = 2500, beforeParse) {
     .map(t => t.textContent).join(' ');
   ok(!/访问延迟/.test(asssdCats), '总览 AS SSD 卡不含访问延迟（只有速度）', asssdCats.slice(0, 80));
 
+  // 柱状图的数据标签一律画在柱顶上方，绝不塞进柱内（以前最高柱会白字塞进柱里，不统一）
+  const colSvgs = ovCards0.filter(c => c.querySelector('.chart.is-column'))
+    .map(c => c.querySelector('svg'));
+  const whiteLabels = colSvgs.flatMap(s => [...s.querySelectorAll('text')])
+    .filter(t => (t.getAttribute('fill') || '').trim().toLowerCase() === '#ffffff');
+  ok(whiteLabels.length === 0,
+    '柱状图无「标签塞进柱内」的白字（全部统一画在柱顶上方）', 'white=' + whiteLabels.length);
+  const aboveBars = colSvgs.flatMap(s => [...s.querySelectorAll('rect')]).length > 0 &&
+    colSvgs.every(s => [...s.querySelectorAll('text')].some(t => /\d/.test(t.textContent)));
+  ok(aboveBars, '柱状图都画出数据标签');
+
   // 切到合并模式：排布不变（这四张柱状图与模式无关，只有坐标轴缩放跟着变）
   dd.doc.querySelector('#modeBar button[data-mode=linear]').click();
   await sleep(300);
@@ -494,6 +510,18 @@ async function open(url, wait = 2500, beforeParse) {
     '整行的柱状图绘图区有宽度上限，柱子不会被撑得很「肥」', 'plotW=' + axisW(lone));
   ok(axisW(lone) > axisW(pairA), '整行卡片确实比半幅卡片更宽');
 
+  // 回归：总览 TX 稳定性柱状图的数据标签要随卡片宽度自适应字号，
+  // 不能冻结在同一个大小（曾固定在 12，宽屏下"不随页面大小变化"）
+  const valFontsOf = sel => [...wide.doc.querySelectorAll(sel + ' svg text[fill="#4b5563"]')]
+    .map(t => parseFloat(t.getAttribute('font-size'))).filter(n => !isNaN(n));
+  const steadyFonts = valFontsOf('[data-pane=overview] [data-chart=steady]');  // 半幅卡 470
+  const rwFonts = valFontsOf('[data-txp=speed] [data-chart=rw]');              // 整行卡 960
+  ok(steadyFonts.length > 0 && rwFonts.length > 0, '两处柱状图都画出数据标签',
+    `steady=${steadyFonts.length} rw=${rwFonts.length}`);
+  ok(Math.max(...rwFonts) > Math.max(...steadyFonts) + 1.5,
+    '数据标签字号随卡片宽度自适应（宽卡 > 窄卡，不再冻结）',
+    `steadyMax=${Math.max(...steadyFonts)} rwMax=${Math.max(...rwFonts)}`);
+
   // ---------------- 详情页：对比组口径 ----------------
   console.log('\n[12] 详情页 · 「平均水平」对比组口径真实');
   const meta = await (await fetch(BASE + '/data/index.json')).json();
@@ -520,6 +548,95 @@ async function open(url, wait = 2500, beforeParse) {
     '放宽后按 NVMe 总线的真实样本数计数', u2Sub);
   ok(u2Sub.includes('已放宽到') && u2Sub.includes('样本不足'),
     '把放宽的原因写出来', u2Sub);
+
+  // ---------------- 详情页：手机窄屏下柱状图数据标签（尽可能保留 / 太窄整张隐藏） ----------------
+  console.log('\n[13] 详情页 · 窄屏柱状图标签「尽可能保留、太窄整张消失」');
+  // 手机桩：所有 .chart 容器都按 260px 宽度渲染（旧代码在 260–280 会让 6 类目图整张丢标签）
+  const phoneStub = w => Object.defineProperty(w.Element.prototype, 'clientWidth', {
+    configurable: true,
+    get() { return (this.classList && this.classList.contains('chart')) ? 260 : 0; }
+  });
+  const ph = await open('/detail.html?id=88&mode=linear', 2500, phoneStub);
+  ok(ph.errs.length === 0, '手机宽度下无 JS 错误', ph.errs[0]);
+
+  // 纯数字文本才是数值标签；类目标签含中文/字母（即便以数字开头，如"50顺序读…"）要排除
+  const valOf = sel => [...ph.doc.querySelectorAll(sel + ' svg text')]
+    .filter(t => t.getAttribute('fill') === '#4b5563' && /^[\d.,\s]+$/.test((t.textContent || '').trim())).length;
+
+  // ① 保留：TX 稳定性（6 类目 × 2 系列）在 260px 仍画出全部 12 个数值标签
+  const steadyVals = valOf('[data-pane=overview] [data-chart=steady]');
+  ok(steadyVals === 12, '窄屏下 TX 稳定性柱状图保留全部数据标签（不再整张消失）', 'vals=' + steadyVals);
+
+  // ② 一致：总览里每张柱状图要么全画标签、要么全不画，绝不出现"半张有字半张没字"
+  const ovCols = [...ph.doc.querySelectorAll('[data-pane=overview] .chart.is-column svg')];
+  ok(ovCols.length >= 3, '总览里存在多张柱状图可校验一致性', 'n=' + ovCols.length);
+  ovCols.forEach((svg, i) => {
+    const bars = svg.querySelectorAll('rect').length;   // 数据柱（每根都带 title）
+    const vals = [...svg.querySelectorAll('text')]
+      .filter(t => t.getAttribute('fill') === '#4b5563' && /^[\d.,\s]+$/.test((t.textContent || '').trim())).length;
+    ok(vals === 0 || vals === bars,
+      `总览柱状图#${i} 数据标签要么全画要么全不画（不残缺）`, 'vals=' + vals + ' bars=' + bars);
+  });
+
+  // ③ 太窄整张消失：12 类目图在 260px 下柱宽 < 门槛，全部标签隐藏（干净，不残缺）
+  //    Chart 是经典脚本里的 const，不在 window 上，用页面上下文的 eval 取出后调用
+  const ChartFn = ph.win.eval('Chart');
+  const vd = { categories: Array.from({ length: 12 }, (_, i) => '场景' + i),
+    series: [{ name: '空盘', values: Array.from({ length: 12 }, () => 300), color: '#2563eb' },
+             { name: '满盘', values: Array.from({ length: 12 }, () => 280), color: '#7c3aed' }],
+    valueFormat: v => String(v) };
+  const vWrap = ph.doc.createElement('div'); vWrap.className = 'chart';
+  ph.doc.body.appendChild(vWrap);
+  ChartFn.groupBar(vWrap, vd);
+  const vdVals = [...vWrap.querySelectorAll('svg text')]
+    .filter(t => t.getAttribute('fill') === '#4b5563' && /^[\d.,\s]+$/.test((t.textContent || '').trim())).length;
+  ok(vdVals === 0, '超密图（柱宽 < 门槛）数据标签整张隐藏，不残缺', 'vals=' + vdVals);
+
+  // ---------------- 各跑分小数位规则（与 build_data.py 取整口径一致） ----------------
+  console.log('\n[14] 详情页 · 小数位规则（CDM 1 位 / AS SSD 速度 2 位·延迟 3 位 / TX 2 位）');
+  const r1 = await open('/detail.html?id=1');   // id=1 同时具备 CDM / AS SSD / TX 数据
+  ok(r1.errs.length === 0, '详情页(id=1)无 JS 错误', r1.errs[0]);
+
+  // ① JSON 层：build_data.py 取整口径正确
+  const rec = await (await fetch(BASE + '/data/ssd/1.json')).json();
+  const oneDec  = v => v == null || Math.abs(v * 10   - Math.round(v * 10))   < 1e-9;
+  const twoDec  = v => v == null || Math.abs(v * 100  - Math.round(v * 100))  < 1e-9;
+  const threeDec= v => v == null || Math.abs(v * 1000 - Math.round(v * 1000)) < 1e-9;
+  ok(oneDec(rec.cdm.seqR) && oneDec(rec.cdm.r4kq8t8),
+    'JSON: CDM 取整到 1 位小数', rec.cdm.seqR + ' / ' + rec.cdm.r4kq8t8);
+  ok(twoDec(rec.asssd.seqR) && twoDec(rec.asssd.r4k64),
+    'JSON: AS SSD 速度取整到 2 位小数', rec.asssd.seqR + ' / ' + rec.asssd.r4k64);
+  ok(threeDec(rec.asssd.accR) && threeDec(rec.asssd.accW),
+    'JSON: AS SSD 延迟取整到 3 位小数', rec.asssd.accR + ' / ' + rec.asssd.accW);
+  ok(twoDec(rec.txbench.speedEmpty[0].read) && twoDec(rec.txbench.latencyEmpty[0].read),
+    'JSON: TX-Bench 速度/延迟均取整到 2 位小数',
+    rec.txbench.speedEmpty[0].read + ' / ' + rec.txbench.latencyEmpty[0].read);
+
+  // ② DOM 层：网页显示的小数位与规则一致（含尾随 0，如 0.043 / 2,386.80）
+  const cdmCells = [...r1.doc.querySelectorAll('[data-pane=cdm] table.kv-table td')]
+    .map(td => td.textContent.trim()).filter(t => /MB\/s$/.test(t));
+  ok(cdmCells.length > 0 && cdmCells.every(t => /^[\d,]+\.\d MB\/s$/.test(t)),
+    '网页: CDM 表数值恰好 1 位小数', cdmCells.slice(0, 3).join(' / '));
+
+  // 注意：AS SSD 表的测试项列是 <th>（非 <td>），所以 tr.querySelectorAll('td')
+  // 只剩 [数值单元, 单位单元] 两列 —— tds[0]=数值, tds[1]=单位。
+  const asssdRows = [...r1.doc.querySelectorAll('[data-pane=asssd] table.kv-table tr')].map(tr => {
+    const tds = tr.querySelectorAll('td');
+    return { unit: tds[1] && tds[1].textContent.trim(), val: tds[0] && tds[0].textContent.trim() };
+  });
+  const asssdSpeed = asssdRows.filter(x => x.unit === 'MB/s').map(x => x.val);
+  const asssdLat   = asssdRows.filter(x => x.unit === 'ms').map(x => x.val);
+  ok(asssdSpeed.length > 0 && asssdSpeed.every(t => /^[\d,]+\.\d{2}$/.test(t)),
+    '网页: AS SSD 速度恰好 2 位小数', asssdSpeed.slice(0, 3).join(' / '));
+  ok(asssdLat.length > 0 && asssdLat.every(t => /^[\d,]+\.\d{3}$/.test(t)),
+    '网页: AS SSD 延迟恰好 3 位小数', asssdLat.slice(0, 3).join(' / '));
+
+  const txSpeedVals = [...r1.doc.querySelectorAll('[data-pane=tx] .tabpane[data-txp=speed] table.grid tbody td.num')]
+    .map(td => td.textContent.trim()).filter(t => /^[\d,]+\.\d{2}$/.test(t));
+  const txLatVals = [...r1.doc.querySelectorAll('[data-pane=tx] .tabpane[data-txp=latency] table.grid tbody td.num')]
+    .map(td => td.textContent.trim()).filter(t => /^[\d,]+\.\d{2}$/.test(t));
+  ok(txSpeedVals.length > 0, '网页: TX 速度表渲染出 2 位小数数值', txSpeedVals.slice(0, 3).join(' / '));
+  ok(txLatVals.length > 0, '网页: TX 延迟表渲染出 2 位小数数值', txLatVals.slice(0, 3).join(' / '));
 
   console.log('\n' + (fail ? fail + ' 项未通过 / ' : '') + pass + ' 项通过');
   process.exit(fail ? 1 : 0);

@@ -88,24 +88,52 @@ const Chart = {
     if (!n || !series.length) { host.innerHTML = '<div class="empty">暂无数据</div>'; return; }
 
     const W = opts.width || hostWidth(host, Math.max(560, Math.min(1100, n * 86 + 90)));
-    const padL = opts.padL || (W < 420 ? 52 : 60), padR = 12, padT = 12;
-    /* 绘图区不给无限宽：整行的柱状图如果按容器全宽铺开，只有 4 组数据时
-       每根柱子会宽得像门板（"肥"），配上固定画布高度就更矮胖。
-       这里给绘图区一个宽度上限，超出部分左右等分留白、柱子居中。 */
+    const padL = opts.padL || (W < 420 ? 52 : 60), padR = 12;
     const availW = W - padL - padR;
     const plotW = Math.min(availW, opts.maxPlotW || 820);
     const x0 = padL + (availW - plotW) / 2;
-    // 画布高度跟着绘图区宽度走：同一行两张卡片等宽 → 画布等宽 → 等高 → 渲染出来天然对齐。
-    // 以前写死 240，宽卡片里的柱子会被压得又矮又「肥」。
-    const H = opts.height || Math.round(Math.max(210, Math.min(330, plotW * 0.46)));
     const groupW = plotW / n;
+    const barW = Math.max(4, (groupW - 10) / series.length);
+    const fmt = opts.valueFormat || (v => Fmt.auto(v));
+
+    // 数值 / 类目标签字号随画布宽度缩放：宽页里整张图被放大，字也得跟着放大，
+    // 否则宽屏下标签显得小而糊、且"不随页面大小变化"。上限仍由各自槽位宽度约束
+    // （柱宽 / 类目宽），不会溢出柱子或挤到相邻类目。
+    const valFsBase = Math.max(9, Math.min(15, W * 0.0135));
+    const catFsBase = Math.max(9, Math.min(14, W * 0.013));
+    // 数据标签：窄屏下柱再细也「尽可能保留」标签（可读下限从 8 降到 6.5）；
+    // 但柱宽一旦低于 VBAR_MINW，整张图就「统一隐藏」标签，绝不出现"一半有字一半没字"。
+    // 同一张图里 barW 是统一的，所以要么全画、要么全不画，视觉上始终一致。
+    const VBAR_FLOOR = 6.5;
+    const VBAR_MINW = 8;
 
     // ---- x 轴标签：先算字号，再决定要不要倾斜
-    let fs = 11;
-    cats.forEach(c => { fs = Math.min(fs, fitFontSize(String(c), groupW - 6, 11, 8)); });
+    let fs = catFsBase;
+    cats.forEach(c => { fs = Math.min(fs, fitFontSize(String(c), groupW - 6, catFsBase, 8)); });
     const rotate = fs <= 8.6;                    // 缩到最小还放不下 → 倾斜
     const padB = rotate ? 16 + maxTextWidth(cats, fs) * 0.72 : 30;
-    const fs2 = rotate ? Math.min(11, fitFontSize(longest(cats), padB / 0.72, 11, 8)) : fs;
+    const fs2 = rotate ? Math.min(catFsBase, fitFontSize(longest(cats), padB / 0.72, catFsBase, 8)) : fs;
+
+    // 数据标签一律画在柱顶正上方；先按最宽的一个标签预留顶部留白带，
+    // 这样即使最高的柱子顶到绘图区顶端，它的标签也有地方放、不会被塞进柱内。
+    // 彻底避免「标签在柱外 / 在柱内」混用、看起来不统一的问题。
+    let labelBand = 12;
+    if (opts.showValues !== false) {
+      let mx = VBAR_FLOOR;
+      cats.forEach((c, ci) => {
+        series.forEach(s => {
+          const v = s.values[ci];
+          if (v != null && barW >= VBAR_MINW) {
+            mx = Math.max(mx, Math.min(valFsBase, fitFontSize(String(fmt(v)), barW - 3, 16, VBAR_FLOOR)));
+          }
+        });
+      });
+      labelBand = Math.max(12, Math.ceil(mx) + 4);
+    }
+    const padT = labelBand;
+
+    // 画布高度跟着绘图区宽度走：同一行两张卡片等宽 → 画布等宽 → 等高 → 渲染出来天然对齐。
+    const H = opts.height || Math.round(Math.max(210, Math.min(330, plotW * 0.46)));
     const plotH = H - padT - padB;
 
     // ---- 量纲：线性 or 对数
@@ -117,8 +145,6 @@ const Chart = {
     if (max <= 0) max = 1;
     max = log ? tf(max) : niceCeil(max);
 
-    const barW = Math.max(4, (groupW - 10) / series.length);
-    const fmt = opts.valueFormat || (v => Fmt.auto(v));
     // 纵轴刻度字号也随画布走，窄图不至于把 y 轴数字挤到边上
     const tickFs = W < 420 ? 9.5 : 10.5;
 
@@ -147,18 +173,14 @@ const Chart = {
         const col = s.color || Chart.color(si);
         svg += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}"
                   rx="2" fill="${col}"><title>${UI.esc(s.name + ' · ' + c + ': ' + fmt(v))}</title></rect>`;
-        // 数据标签：字号跟着柱子宽度自适应（7.5–12px），宽柱用大字、窄柱用小字；
-        // 缩到最小仍放不下就不画，免得糊成一团。
+        // 数据标签：字号随柱宽自适应，下限 VBAR_FLOOR；一律画在柱顶正上方。
+        // 柱宽低于 VBAR_MINW 时整张图不画标签（统一隐藏，绝不残缺）。
         if (opts.showValues !== false && v != null) {
           const txt = fmt(v);
-          const vfs = fitFontSize(String(txt), barW - 3, 12, 7.5);
-          if (vfs > 7.6 && barW >= 15) {
-            // 柱子顶到绘图区顶部时标签会溢出坐标轴上方，改画在柱子内侧
-            const inside = (y - 4 - vfs) < padT + 1;
-            svg += `<text x="${(x + barW / 2).toFixed(1)}" y="${(inside ? y + vfs + 2 : y - 3).toFixed(1)}"
-                      text-anchor="middle" font-size="${vfs.toFixed(1)}"
-                      fill="${inside ? '#ffffff' : '#4b5563'}"
-                      ${inside ? 'style="paint-order:stroke;stroke:rgba(15,23,42,.22);stroke-width:2px"' : ''}
+          const vfs = Math.min(valFsBase, fitFontSize(String(txt), barW - 3, 16, VBAR_FLOOR));
+          if (vfs >= VBAR_FLOOR && barW >= VBAR_MINW) {
+            svg += `<text x="${(x + barW / 2).toFixed(1)}" y="${(y - 3).toFixed(1)}"
+                      text-anchor="middle" font-size="${vfs.toFixed(1)}" fill="#4b5563"
                     >${UI.esc(txt)}</text>`;
           }
         }

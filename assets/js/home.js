@@ -44,11 +44,11 @@ const METRIC_FORMAT = {
   bandwidth:   v => Fmt.score(v),
   latency:     v => Fmt.score(v),
   theoretical: v => Fmt.score(v),
-  cdmSeqR:     v => Fmt.n(v, 0),
-  cdmSeqW:     v => Fmt.n(v, 0),
-  cdm4kR:      v => Fmt.n(v, 0),
-  asssdSeqR:   v => Fmt.n(v, 0),
-  accR:        v => Fmt.ms(v)
+  cdmSeqR:     v => Fmt.cdm(v),
+  cdmSeqW:     v => Fmt.cdm(v),
+  cdm4kR:      v => Fmt.cdm(v),
+  asssdSeqR:   v => Fmt.asssdSpeed(v),
+  accR:        v => Fmt.asssdMs(v)
 };
 
 document.addEventListener('DOMContentLoaded', init);
@@ -427,8 +427,8 @@ function renderTable(host, page) {
           <td class="num"><b>${Fmt.score(r.scores.overall)}</b></td>
           <td class="num">${Fmt.score(r.scores.bandwidth)}</td>
           <td class="num">${Fmt.score(r.scores.latency)}</td>
-          <td class="num">${Fmt.n(r.key.cdmSeqR, 0)}</td>
-          <td class="num">${Fmt.n(r.key.cdmSeqW, 0)}</td>
+          <td class="num">${Fmt.cdm(r.key.cdmSeqR)}</td>
+          <td class="num">${Fmt.cdm(r.key.cdmSeqW)}</td>
         </tr>`).join('')}
       </tbody>
     </table></div>`;

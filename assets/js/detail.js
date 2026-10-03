@@ -244,11 +244,11 @@ function renderOverview() {
           { name: peer.label + '平均', values: peerAvg, color: '#cbd5e1' }
         ],
         logScale: benchMode === 'log',
-        valueFormat: v => Fmt.n(v, 0)
+        valueFormat: Fmt.cdm
       })
     },
-    speedColumnCard('CrystalDiskMark 吞吐（MB/s）', cg[0].subs.flatMap(s => s.items), 'cdm'),
-    speedColumnCard('AS SSD 吞吐（MB/s）', ag[0].subs.flatMap(s => s.items), 'asssd'),
+    speedColumnCard('CrystalDiskMark 吞吐（MB/s）', cg[0].subs.flatMap(s => s.items), 'cdm', Fmt.cdm),
+    speedColumnCard('AS SSD 吞吐（MB/s）', ag[0].subs.flatMap(s => s.items), 'asssd', Fmt.asssdSpeed),
     {
       title: 'TX-Bench 持续写入稳定性（MB/s）',
       sub: '六种混合负载，空盘 vs 85% 满盘，取主导方向吞吐',
@@ -260,7 +260,7 @@ function renderOverview() {
           { name: '85% 满盘', values: r.txbench.speedFull.map(txPrimary), color: '#7c3aed' }
         ],
         logScale: benchMode === 'log',
-        valueFormat: v => Fmt.n(v, 0)
+        valueFormat: Fmt.tx
       })
     }
   ];
@@ -274,7 +274,7 @@ function renderOverview() {
  * 线性坐标会把 4K 压成看不见的一根线 —— 所以分项/对数模式下这张卡用对数纵轴
  * （副标题会注明），只有用户明确选「合并·线性」时才用线性。
  */
-function speedColumnCard(title, items, key) {
+function speedColumnCard(title, items, key, fmt) {
   const useLog = benchMode !== 'linear';
   return {
     title, key, dir: 'high', shape: 'column',
@@ -286,7 +286,7 @@ function speedColumnCard(title, items, key) {
       series: [{ name: '本盘', values: items.map(i => i.value), color: '#2563eb' }],
       logScale: useLog,
       showValues: true,
-      valueFormat: v => Fmt.auto(v)
+      valueFormat: fmt || Fmt.auto
     })
   };
 }
@@ -323,7 +323,7 @@ function asssdGroups() {
   const r = REC;
   const it = (label, key, ms) => ({
     label, value: r.asssd[key],
-    display: ms ? Fmt.ms(r.asssd[key]) : Fmt.auto(r.asssd[key])
+    display: ms ? Fmt.asssdMs(r.asssd[key]) : Fmt.asssdSpeed(r.asssd[key])
   });
   const seqItems = [
     it('顺序读取', 'seqR'), it('顺序写入', 'seqW'),
@@ -335,7 +335,7 @@ function asssdGroups() {
 
   return [
     {
-      title: 'AS SSD 吞吐', unit: 'MB/s', better: 'high',
+      title: 'AS SSD 吞吐', unit: 'MB/s', better: 'high', fmt: Fmt.asssdSpeed,
       note: '5 GB 测试文件 · 4K 单队列与顺序/深队列量级差两个数量级',
       subs: [
         {
@@ -353,7 +353,7 @@ function asssdGroups() {
       }
     },
     {
-      title: 'AS SSD 访问延迟', unit: 'ms', better: 'low',
+      title: 'AS SSD 访问延迟', unit: 'ms', better: 'low', fmt: Fmt.asssdMs,
       note: 'Acc.time 读取 / 写入，不与吞吐共用坐标',
       subs: [{
         title: '访问延迟', items: latItems, rowH: 34, barColor: '#0891b2',
@@ -377,7 +377,7 @@ function renderAsssd() {
         <thead><tr><th style="width:200px">测试项</th><th style="width:140px">结果</th><th>单位</th></tr></thead>
         <tbody>${METRICS.asssd.map(m => `<tr>
           <th>${m.label}</th>
-          <td><b>${m.unit === 'ms' ? Fmt.ms(r.asssd[m.k]) : Fmt.auto(r.asssd[m.k])}</b></td>
+          <td><b>${m.unit === 'ms' ? Fmt.asssdMs(r.asssd[m.k]) : Fmt.asssdSpeed(r.asssd[m.k])}</b></td>
           <td style="color:var(--muted)">${m.unit}</td></tr>`).join('')}
         </tbody>
       </table>
@@ -392,14 +392,14 @@ function renderAsssd() {
 function cdmGroups() {
   const r = REC;
   const seqItems = METRICS.cdm.slice(0, 2).map(m => ({
-    label: m.label.replace(' Q8T1', ''), value: r.cdm[m.k], display: Fmt.auto(r.cdm[m.k])
+    label: m.label.replace(' Q8T1', ''), value: r.cdm[m.k], display: Fmt.cdm(r.cdm[m.k])
   }));
   const randItems = METRICS.cdm.slice(2).map(m => ({
-    label: m.label, value: r.cdm[m.k], display: Fmt.auto(r.cdm[m.k])
+    label: m.label, value: r.cdm[m.k], display: Fmt.cdm(r.cdm[m.k])
   }));
   const all = [...seqItems, ...randItems];
   return [{
-    title: 'CrystalDiskMark 吞吐', unit: 'MB/s', better: 'high',
+    title: 'CrystalDiskMark 吞吐', unit: 'MB/s', better: 'high', fmt: Fmt.cdm,
     note: '测试设置 16 GiB · 3 次 · 顺序为 Q8T1',
     subs: [
       {
@@ -428,7 +428,7 @@ function renderCdm() {
         <thead><tr><th style="width:200px">测试项</th><th style="width:140px">结果</th><th>说明</th></tr></thead>
         <tbody>${METRICS.cdm.map(m => `<tr>
           <th>${m.label}</th>
-          <td><b>${Fmt.auto(r.cdm[m.k])} MB/s</b></td>
+          <td><b>${Fmt.cdm(r.cdm[m.k])} MB/s</b></td>
           <td style="color:var(--muted)">${cdmNote(m.k)}</td></tr>`).join('')}
         </tbody>
       </table>
@@ -436,9 +436,19 @@ function renderCdm() {
 
   const cards = [];
   if (benchMode === 'rows') {
-    cards.push({
-      title: 'CrystalDiskMark', sub: '每行独立缩放；顺序与 4K 随机量级差一个数量级，分开归一',
-      shape: 'bar', key: 'cdm', draw: el => Chart.multiHBar(el, { groups: toMultiGroups(cdmGroups()) })
+    /* 与 AS SSD / TX-Bench 页保持同一表达形态：分项模式用横向条形图（Chart.hbar），
+       指标名与数值都画在条外，不做「盘内对比」的 ★ 标记；
+       顺序吞吐与 4K 随机量级差一个数量级，各自独立缩放成两张卡，
+       与 AS SSD 页「顺序与深队列 / 4K / 延迟」的分法一致。 */
+    const g = cdmGroups()[0];
+    g.subs.forEach(s => {
+      cards.push({
+        title: s.title, sub: s.note, dir: g.better, shape: 'bar',
+        draw: el => Chart.hbar(el, {
+          items: s.items, rowH: s.rowH || 26, barColor: s.barColor,
+          max: s.max, format: Fmt.cdm
+        })
+      });
     });
   } else {
     const c = benchGroupCard(cdmGroups()[0]);
@@ -459,7 +469,7 @@ function renderCdm() {
         { name: 'Q8T8', values: [r.cdm.r4kq8t8, r.cdm.w4kq8t8], color: '#7c3aed' }
       ],
       logScale: benchMode === 'log',
-      valueFormat: v => Fmt.n(v, 0)
+      valueFormat: Fmt.cdm
     })
   });
 
@@ -548,7 +558,7 @@ function txGroups(kind) {
   const isSpeed = kind === 'speed';
   const empKey = isSpeed ? 'speedEmpty' : 'latencyEmpty';
   const fulKey = isSpeed ? 'speedFull' : 'latencyFull';
-  const fmt = v => (isSpeed ? Fmt.auto(v) : Fmt.ms(v));
+  const fmt = Fmt.tx;
   const mk = arr => scen.map((s, i) => ({
     label: s.short,
     tip: s.label || s.short,
@@ -564,6 +574,7 @@ function txGroups(kind) {
     title: 'TX-Bench ' + (isSpeed ? '传输速度' : '响应延迟'),
     unit: isSpeed ? 'MB/s' : 'ms',
     better: isSpeed ? 'high' : 'low',
+    fmt: Fmt.tx,
     note: scenNote() + '；' + (isSpeed
       ? '混合负载取读/写中较高者，即主导方向的吞吐'
       : '混合负载取读/写中较大者，即最差情况'),
@@ -604,8 +615,7 @@ function retentionItems(kind) {
       : (isSpeed ? b / a : a / b) * 100;
     return {
       label: s.short,
-      tip: (s.label || s.short) + ' 空盘 ' + (isSpeed ? Fmt.auto(a) : Fmt.ms(a)) +
-           ' / 满盘 ' + (isSpeed ? Fmt.auto(b) : Fmt.ms(b)),
+      tip: (s.label || s.short) + ' 空盘 ' + Fmt.tx(a) + ' / 满盘 ' + Fmt.tx(b),
       value: pct,
       display: pct == null ? '—' : pct.toFixed(1) + '%'
     };
@@ -641,7 +651,7 @@ function drawTxRW(host, arr, speed) {
     ],
     logScale: benchMode === 'log',
     showValues: false,
-    valueFormat: v => (speed ? Fmt.auto(v) : Fmt.ms(v))
+    valueFormat: Fmt.tx
   });
 }
 
@@ -650,7 +660,7 @@ function txTable(kind) {
   const scen = State_meta_scenarios();
   const a = kind === 'speed' ? r.txbench.speedEmpty : r.txbench.latencyEmpty;
   const b = kind === 'speed' ? r.txbench.speedFull : r.txbench.latencyFull;
-  const f = kind === 'speed' ? (v => Fmt.auto(v)) : (v => Fmt.ms(v));
+  const f = Fmt.tx;
   const keep = retentionItems(kind);
   return `<table class="grid" style="margin-top:14px">
     <thead><tr>
@@ -683,13 +693,13 @@ function renderRaw() {
 
   ['seqRead', 'seqWrite'].forEach(k => push('标称', { seqRead: '顺序读取', seqWrite: '顺序写入' }[k], 'MB/s', r.spec[k], v => Fmt.n(v, 0)));
   ['randReadIOPS', 'randWriteIOPS'].forEach(k => push('标称', { randReadIOPS: '随机读 IOPS', randWriteIOPS: '随机写 IOPS' }[k], '', r.spec[k], Fmt.iops));
-  METRICS.asssd.forEach(m => push('AS SSD', m.label, m.unit, r.asssd[m.k], m.unit === 'ms' ? Fmt.ms : Fmt.auto));
-  METRICS.cdm.forEach(m => push('CDM', m.label, 'MB/s', r.cdm[m.k], Fmt.auto));
+  METRICS.asssd.forEach(m => push('AS SSD', m.label, m.unit, r.asssd[m.k], m.unit === 'ms' ? Fmt.asssdMs : Fmt.asssdSpeed));
+  METRICS.cdm.forEach(m => push('CDM', m.label, 'MB/s', r.cdm[m.k], Fmt.cdm));
   TX_GROUPS.forEach(g => {
     const grp = r.txbench[g.k];
     scen.forEach((s, i) => {
-      if (grp[i].read != null) push(g.title, s.short + ' · 读', g.unit, grp[i].read, g.unit === 'ms' ? Fmt.ms : Fmt.auto);
-      if (grp[i].write != null) push(g.title, s.short + ' · 写', g.unit, grp[i].write, g.unit === 'ms' ? Fmt.ms : Fmt.auto);
+      if (grp[i].read != null) push(g.title, s.short + ' · 读', g.unit, grp[i].read, Fmt.tx);
+      if (grp[i].write != null) push(g.title, s.short + ' · 写', g.unit, grp[i].write, Fmt.tx);
     });
   });
   SCORE_DEFS.forEach(s => push('评分', s.label, '', r.scores[s.k], Fmt.score));

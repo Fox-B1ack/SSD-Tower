@@ -212,9 +212,9 @@ function buildBenchGroups(sel) {
 
   if (sel === 'cdm') {
     return [{
-      title: 'CrystalDiskMark 吞吐', unit: 'MB/s', better: 'high',
+      title: 'CrystalDiskMark 吞吐', unit: 'MB/s', better: 'high', fmt: Fmt.cdm,
       note: '测试设置 16 GiB × 3 次；每一行为独立坐标，★ 标记该行最优',
-      rows: METRICS.cdm.map(m => mk(m.label, r => r.cdm[m.k], v => Fmt.auto(v)))
+      rows: METRICS.cdm.map(m => mk(m.label, r => r.cdm[m.k], Fmt.cdm))
     }];
   }
 
@@ -223,32 +223,32 @@ function buildBenchGroups(sel) {
     const lt = METRICS.asssd.slice(6);      // 延迟
     return [
       {
-        title: 'AS SSD 吞吐', unit: 'MB/s', better: 'high',
+        title: 'AS SSD 吞吐', unit: 'MB/s', better: 'high', fmt: Fmt.asssdSpeed,
         note: '5 GB 测试文件；4K 单队列与深队列量级不同，各自独立缩放',
-        rows: th.map(m => mk(m.label, r => r.asssd[m.k], v => Fmt.auto(v)))
+        rows: th.map(m => mk(m.label, r => r.asssd[m.k], Fmt.asssdSpeed))
       },
       {
-        title: 'AS SSD 访问延迟', unit: 'ms', better: 'low',
+        title: 'AS SSD 访问延迟', unit: 'ms', better: 'low', fmt: Fmt.asssdMs,
         note: '越低越好，单独成图，不与吞吐混在一起',
-        rows: lt.map(m => mk(m.label, r => r.asssd[m.k], v => Fmt.ms(v)))
+        rows: lt.map(m => mk(m.label, r => r.asssd[m.k], Fmt.asssdMs))
       }
     ];
   }
 
   const isLat = sel === 'txLat';
-  const fmt = isLat ? (v => Fmt.ms(v)) : (v => Fmt.auto(v));
   const keys = isLat ? ['latencyEmpty', 'latencyFull'] : ['speedEmpty', 'speedFull'];
   const names = ['空盘', '85% 满盘'];
   return keys.map((k, gi) => ({
     title: 'TX-Bench ' + (isLat ? '响应延迟' : '传输速度') + ' · ' + names[gi],
     unit: isLat ? 'ms' : 'MB/s',
     better: isLat ? 'low' : 'high',
+    fmt: Fmt.tx,
     note: scenNote() + '；' + (isLat
       ? '混合负载取读/写中较大者，即最差情况；越低越好'
       : '混合负载取读/写中较高者，即该场景主导方向的吞吐'),
     // 短标签画图，完整含义挂到悬停提示上
     rows: scen.map((s, si) => {
-      const row = mk(s.short, r => txPrimary(r.txbench[k][si]), fmt);
+      const row = mk(s.short, r => txPrimary(r.txbench[k][si]), Fmt.tx);
       if (s.label && s.label !== s.short) row.tip = s.label;
       return row;
     })
@@ -287,7 +287,7 @@ function renderBenchChart() {
       series,
       logScale: log,
       showValues: LIST.length <= 2,
-      valueFormat: (v) => (g.unit === 'ms' ? Fmt.ms(v) : Fmt.auto(v))
+      valueFormat: g.fmt || (v => (g.unit === 'ms' ? Fmt.ms(v) : Fmt.auto(v)))
     });
   });
 }
@@ -352,13 +352,13 @@ function renderBenchTable() {
     title: 'AS SSD Benchmark（5G）',
     rows: METRICS.asssd.map(m => ({
       label: m.label + '（' + m.unit + '）', better: m.better,
-      fmt: m.unit === 'ms' ? Fmt.ms : Fmt.auto, get: r => r.asssd[m.k]
+      fmt: m.unit === 'ms' ? Fmt.asssdMs : Fmt.asssdSpeed, get: r => r.asssd[m.k]
     }))
   });
   sections.push({
     title: 'CrystalDiskMark（16G · 3 次）',
     rows: METRICS.cdm.map(m => ({
-      label: m.label + '（MB/s）', better: 'high', fmt: Fmt.auto, get: r => r.cdm[m.k]
+      label: m.label + '（MB/s）', better: 'high', fmt: Fmt.cdm, get: r => r.cdm[m.k]
     }))
   });
   TX_GROUPS.forEach(g => {
@@ -366,7 +366,7 @@ function renderBenchTable() {
       title: 'TX-Bench · ' + g.title + '（' + g.unit + '）',
       rows: scen.flatMap((s, i) => {
         const isLat = g.k.startsWith('latency');
-        const fmt = isLat ? Fmt.ms : Fmt.auto;
+        const fmt = Fmt.tx;
         return [
           { label: s.short + ' · 读', tip: s.label, better: g.better, fmt, get: r => r.txbench[g.k][i].read },
           { label: s.short + ' · 写', tip: s.label, better: g.better, fmt, get: r => r.txbench[g.k][i].write }

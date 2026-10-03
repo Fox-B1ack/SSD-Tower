@@ -21,7 +21,9 @@ import json
 import os
 import re
 import sys
+import ctypes
 import datetime
+import tempfile
 
 try:
     import openpyxl
@@ -80,6 +82,16 @@ TX_SCENARIO_NOTE = "顺序 = 连续大块数据；随机 = 4K 小块离散地址
 
 ASSSD_KEYS = ["seqR", "seqW", "r4k", "w4k", "r4k64", "w4k64", "accR", "accW"]
 CDM_KEYS = ["seqR", "seqW", "r4kq8t1", "w4kq8t1", "r4kq64t1", "w4kq64t1", "r4kq8t8", "w4kq8t8"]
+
+# 各跑分软件的小数位口径（与前端 assets/js/core.js 的 Fmt 规则一致）：
+#   CDM          ：全部保留 1 位小数（MB/s）
+#   AS SSD       ：吞吐（seqR/seqW/r4k/w4k/r4k64/w4k64）2 位，延迟（accR/accW，ms）3 位
+#   TX-Bench     ：速度与延迟均保留 2 位小数
+#   SPEC / SCORES：保持原样（标称整数、评分 4 位，用户未要求改动）
+ASSSD_DECIMALS = {"seqR": 2, "seqW": 2, "r4k": 2, "w4k": 2,
+                  "r4k64": 2, "w4k64": 2, "accR": 3, "accW": 3}
+CDM_DECIMALS = 1
+TX_DECIMALS = 2
 
 
 # ---------------------------------------------------------------- 工具函数
@@ -214,7 +226,7 @@ def controller_brand(ctrl):
 
 def tx_group(row, cols):
     """把 11 列 TX-Bench 数据按 6 个场景拆成 [{read, write}]"""
-    vals = [num(row[i], 4) for i in cols]
+    vals = [num(row[i], TX_DECIMALS) for i in cols]
     out = []
     idx = 0
     for sc in TX_SCENARIOS:
@@ -233,6 +245,52 @@ def tx_group(row, cols):
 
 def load_workbook(path):
     return openpyxl.load_workbook(path, data_only=True, read_only=True)
+
+
+def _open_readable(path):
+    """文件能否以读方式打开（不被其它进程独占）。"""
+    try:
+        with open(path, 'rb'):
+            pass
+        return True
+    except OSError:
+        return False
+
+
+def _copy_locked(src, dst):
+    """Windows 下 Excel 常独占打开 xlsx；用 FILE_SHARE_READ|WRITE|DELETE
+    标志复制出一份可读副本，从而能在 Excel 不关闭的情况下读取最新数据。
+    （普通 open('rb') 会被独占锁拒绝，故走 Win32 API 显式请求共享读。）"""
+    if sys.platform != 'win32':
+        raise OSError('共享读复制仅支持 Windows')
+    kernel32 = ctypes.windll.kernel32
+    GENERIC_READ = 0x80000000
+    FILE_SHARE = 0x00000001 | 0x00000002 | 0x00000004
+    OPEN_EXISTING = 3
+    FILE_ATTRIBUTE_NORMAL = 0x80
+    kernel32.CreateFileW.restype = ctypes.c_void_p
+    kernel32.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_ulong, ctypes.c_ulong,
+                                     ctypes.c_void_p, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_void_p]
+    kernel32.ReadFile.restype = ctypes.c_int
+    kernel32.ReadFile.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong,
+                                  ctypes.POINTER(ctypes.c_ulong), ctypes.c_void_p]
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    h = kernel32.CreateFileW(src, GENERIC_READ, FILE_SHARE, None,
+                             OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, None)
+    INVALID = ctypes.c_void_p(-1).value
+    if not h or h == INVALID:
+        raise OSError('CreateFile 失败，错误码 %s' % ctypes.GetLastError())
+    try:
+        with open(dst, 'wb') as out:
+            buf = ctypes.create_string_buffer(1 << 20)
+            rd = ctypes.c_ulong(0)
+            while kernel32.ReadFile(h, buf, 1 << 20, ctypes.byref(rd), None):
+                n = rd.value
+                if n == 0:
+                    break
+                out.write(bytes(buf[:n]))
+    finally:
+        kernel32.CloseHandle(h)
 
 
 def read_detail(wb):
@@ -281,10 +339,10 @@ def read_detail(wb):
             "randReadIOPS": spec[2], "randWriteIOPS": spec[3],
         }
 
-        a = [num(row[i], 2) for i in C_ASSSD]
+        a = [num(row[col], ASSSD_DECIMALS[k]) for col, k in zip(C_ASSSD, ASSSD_KEYS)]
         rec["asssd"] = dict(zip(ASSSD_KEYS, a))
 
-        c = [num(row[i], 2) for i in C_CDM]
+        c = [num(row[i], CDM_DECIMALS) for i in C_CDM]
         rec["cdm"] = dict(zip(CDM_KEYS, c))
 
         rec["txbench"] = {
@@ -488,13 +546,22 @@ def main():
     candidates = [given] if given else [_ONEDRIVE, _LOCAL]
     xlsx = None
     for c in candidates:
-        if c and os.path.exists(c):
-            try:
-                open(c, "rb").close()
-                xlsx = c
-                break
-            except PermissionError:
-                print("跳过（文件被占用）: %s" % c)
+        if not c or not os.path.exists(c):
+            continue
+        if _open_readable(c):
+            xlsx = c
+            break
+        # 文件被其它进程占用（通常是 Excel 正打开）：用 Windows 共享读复制出
+        # 一份临时副本来读取，避免静默退回旧副本而用上过期数据。
+        try:
+            tmp = os.path.join(tempfile.gettempdir(),
+                               'ssd_live_copy_%d.xlsx' % os.getpid())
+            _copy_locked(c, tmp)
+            xlsx = tmp
+            print("源表被占用，已通过共享读复制临时副本读取: %s" % c)
+            break
+        except Exception as e:
+            print("跳过（无法读取被占用文件）: %s (%s)" % (c, e))
     if not xlsx:
         sys.exit("找不到可读取的 Excel 文件。\n" +
                  "若源表正在 Excel 中打开，请先关闭，或在命令行显式指定一个副本路径：\n" +
