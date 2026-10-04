@@ -34,10 +34,27 @@ const METRIC_ACCESS = {
   cdmSeqW:     r => r.key.cdmSeqW,
   cdm4kR:      r => r.key.cdm4kR,
   asssdSeqR:   r => r.key.asssdSeqR,
-  accR:        r => r.key.accR
+  accR:        r => r.key.accR,
+  seqRead:     r => r.spec.seqRead,
+  capacityGB:  r => r.capacityGB
 };
 
 const METRIC_LOW_IS_BETTER = { accR: true };
+
+/* 天梯图副标题用的指标名（不再从下拉框取，避免「排序/指标」合并后文案不准） */
+const METRIC_LABEL = {
+  overall:     '综合评分',
+  bandwidth:   '读写速度比',
+  latency:     '响应速度比',
+  theoretical: '理论性能比',
+  cdmSeqR:     'CDM 顺序读取 (MB/s)',
+  cdmSeqW:     'CDM 顺序写入 (MB/s)',
+  cdm4kR:      'CDM 4K 随机读 (MB/s)',
+  asssdSeqR:   'AS SSD 顺序读取 (MB/s)',
+  accR:        'AS SSD 访问延迟·读 (ms, 越低越好)',
+  seqRead:     '标称顺序读取 (MB/s)',
+  capacityGB:  '容量 (GB)'
+};
 
 const METRIC_FORMAT = {
   overall:     v => Fmt.score(v),
@@ -48,7 +65,9 @@ const METRIC_FORMAT = {
   cdmSeqW:     v => Fmt.cdm(v),
   cdm4kR:      v => Fmt.cdm(v),
   asssdSeqR:   v => Fmt.asssdSpeed(v),
-  accR:        v => Fmt.asssdMs(v)
+  accR:        v => Fmt.asssdMs(v),
+  seqRead:     v => Fmt.n(v, 0),
+  capacityGB:  v => Fmt.n(v, 0)
 };
 
 document.addEventListener('DOMContentLoaded', init);
@@ -193,11 +212,11 @@ function buildFilters() {
 }
 
 function bindToolbar() {
+  // 「排序/指标」已合并为一个下拉：选哪个指标，就按哪个指标排序，天梯条也按它绘制
   document.getElementById('sortBy').addEventListener('change', e => {
-    State.sort = e.target.value; State.page = 1; render();
-  });
-  document.getElementById('metricSel').addEventListener('change', e => {
-    State.metric = e.target.value; render();
+    State.sort = e.target.value;
+    State.metric = SORT_TO_METRIC[e.target.value] || e.target.value;
+    State.page = 1; render();
   });
   document.querySelectorAll('#viewSeg button').forEach(b => {
     b.addEventListener('click', () => {
@@ -262,9 +281,15 @@ const SORT_ACCESS = {
   theoretical: r => -(r.scores.theoretical ?? -1),
   seqRead: r => -(r.spec.seqRead ?? -1),
   cdmSeqR: r => -(r.key.cdmSeqR ?? -1),
+  cdmSeqW: r => -(r.key.cdmSeqW ?? -1),
   cdm4kR: r => -(r.key.cdm4kR ?? -1),
+  asssdSeqR: r => -(r.key.asssdSeqR ?? -1),
+  accR: r => (r.key.accR ?? Infinity),          // 延迟越低越好 → 升序
   capacityGB: r => -(r.capacityGB ?? -1)
 };
+
+/* 「排序/指标」合并后的映射：其余选项的排序键与指标键同名，只有综合排名例外 */
+const SORT_TO_METRIC = { rank: 'overall' };
 
 function sorted(rows) {
   const fn = SORT_ACCESS[State.sort] || SORT_ACCESS.rank;
@@ -343,12 +368,23 @@ function metricValue(r) {
   return fn ? fn(r) : null;
 }
 
+/** 当前指标下每款硬盘的全局名次（同值同名次；综合排名用源表的名次） */
+function metricRankMap() {
+  if (State.metric === 'overall') {
+    const map = new Map();
+    State.rows.forEach(r => map.set(r.id, r.rank ?? null));
+    return map;
+  }
+  return computeRanks(State.rows, METRIC_ACCESS[State.metric], !!METRIC_LOW_IS_BETTER[State.metric]);
+}
+
 function renderLadder(host, page, allRows) {
   const lowBetter = METRIC_LOW_IS_BETTER[State.metric];
   const values = allRows.map(metricValue).filter(v => v != null && !isNaN(v));
   const max = Math.max(...values, 0) || 1;
   const picked = Basket.get();
-  const metricLabel = document.getElementById('metricSel').selectedOptions[0].textContent;
+  const metricLabel = METRIC_LABEL[State.metric] || State.metric;
+  const ranks = metricRankMap();
 
   const html = `
     <div class="panel-head">
@@ -363,10 +399,11 @@ function renderLadder(host, page, allRows) {
           const v = metricValue(r);
           const pct = (v == null || isNaN(v)) ? 0 : Math.min(100, (v / max) * 100);
           const globalIdx = (State.page - 1) * State.perPage + i;
-          const rankCls = r.rank === 1 ? 'top1' : r.rank === 2 ? 'top2' : r.rank === 3 ? 'top3' : '';
+          const rk = ranks.get(r.id);
+          const rankCls = rk === 1 ? 'top1' : rk === 2 ? 'top2' : rk === 3 ? 'top3' : '';
           return `<div class="lrow ${rankCls}" data-id="${r.id}">
             <label class="pick" title="加入对比"><input type="checkbox" data-pick="${r.id}" ${picked.includes(r.id) ? 'checked' : ''}></label>
-            <span class="rk">${r.rank ? '#' + r.rank : '—'}</span>
+            <span class="rk">${rk ? '#' + rk : '—'}</span>
             <span class="mid">
               <span class="name" title="${UI.esc(r.brand + ' ' + r.model + (r.capacity ? ' ' + r.capacity : ''))}"><a href="detail.html?id=${r.id}">${UI.esc(r.brand)} ${UI.esc(r.model)}</a><span class="cap">${UI.esc(r.capacity || '')}</span></span>
               <span class="meta" title="${UI.esc([r.interface, r.controller || '未知主控', r.nandType].filter(Boolean).join(' · '))}">${UI.esc(r.interface || '')} · ${UI.esc(r.controller || '未知主控')} · ${UI.esc(r.nandType || '')}</span>
@@ -392,6 +429,7 @@ function renderLadder(host, page, allRows) {
 
 function renderTable(host, page) {
   const picked = Basket.get();
+  const ranks = metricRankMap();
   const html = `
     <div class="panel-head"><h2>硬盘列表</h2><span class="sub">点击表头可排序</span></div>
     <div class="tablewrap">
@@ -414,7 +452,7 @@ function renderTable(host, page) {
       <tbody>
         ${page.map(r => `<tr class="${picked.includes(r.id) ? 'picked' : ''}">
           <td><input type="checkbox" data-pick="${r.id}" ${picked.includes(r.id) ? 'checked' : ''}></td>
-          <td class="num">${r.rank ? r.rank : '—'}</td>
+          <td class="num">${ranks.get(r.id) ?? '—'}</td>
           <td>
             <a class="cell-name" href="detail.html?id=${r.id}">${UI.esc(r.brand)} ${UI.esc(r.model)}</a>
             <div class="cell-sub">${UI.esc(r.pn || '')}</div>
@@ -466,3 +504,15 @@ function renderPager(total) {
     State.page = 1; render();
   };
 }
+
+/* 篮子变化（托盘「清空」、托盘条目「×」移除等）时，同步本页所有勾选框，
+   避免「清空选择后勾选仍在、要刷新才消失」的不同步 */
+document.addEventListener('basketchange', e => {
+  const ids = (e.detail && e.detail.ids) || [];
+  document.querySelectorAll('[data-pick]').forEach(cb => {
+    const on = ids.includes(Number(cb.dataset.pick));
+    if (cb.checked !== on) cb.checked = on;
+    const row = cb.closest('tr');
+    if (row) row.classList.toggle('picked', on);
+  });
+});

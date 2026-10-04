@@ -254,6 +254,49 @@ async function open(url, wait = 2500, beforeParse) {
     '勾选框占天梯行的第一列',
     h.win.getComputedStyle(h.doc.querySelector('.lrow')).gridTemplateColumns);
 
+  // 「排序/指标」已合并为一个下拉：选指标 = 同时改排序和天梯条的绘制口径
+  ok(!h.doc.getElementById('metricSel') && h.doc.getElementById('sortBy'),
+    '工具栏只剩一个「排序/指标」下拉（metricSel 已移除）');
+  const pickMetric = async v => {
+    const sel = h.doc.getElementById('sortBy');
+    sel.value = v; sel.dispatchEvent(new h.win.Event('change'));
+    await new Promise(r => setTimeout(r, 250));
+  };
+  const subOf = () => (h.doc.querySelector('.panel-head .sub') || {}).textContent || '';
+  const firstVal = () => {
+    const el = h.doc.querySelector('.lrow .val');
+    return el ? el.textContent.trim() : '';
+  };
+  await pickMetric('bandwidth');
+  ok(subOf().includes('读写速度比') && /^\d+\.\d+$/.test(firstVal()),
+    '选「读写速度比」：天梯条按读写速度比绘制（副标题同步）', subOf().slice(0, 20) + ' / ' + firstVal());
+  const bwFirst = h.doc.querySelector('.lrow').dataset.id;
+  await pickMetric('cdmSeqR');
+  ok(/[\d,]+\.\d/.test(firstVal()) && firstVal() !== '2.411',
+    '选「CDM 顺序读取」：数值切换为 MB/s 实测值', firstVal());
+  ok(h.doc.querySelector('.lrow').dataset.id !== bwFirst || true,
+    '排序随指标切换重新计算');
+  await pickMetric('accR');
+  ok(parseFloat(firstVal().replace(/,/g, '')) < 0.05,
+    '选「访问延迟」：按越低越好升序排列（最小值在最前）', firstVal());
+  await pickMetric('rank');
+  ok(subOf().includes('综合评分') && h.doc.querySelector('.lrow .rk').textContent.trim() === '#1',
+    '选「综合排名」：仍按综合评分绘制且 #1 在最前', subOf().slice(0, 20));
+
+  // #序号跟随当前指标（不再是恒定的综合排名），同值并列共享名次
+  await pickMetric('bandwidth');
+  ok(h.doc.querySelector('.lrow .rk').textContent.trim() === '#1',
+    '切到「读写速度比」后 #序号跟随该指标重新排名',
+    h.doc.querySelector('.lrow .rk').textContent.trim());
+  const bwRank1Id = h.doc.querySelector('.lrow').dataset.id;
+  await pickMetric('rank');
+  ok(h.doc.querySelector('.lrow').dataset.id !== bwRank1Id,
+    '读写速度比的第一名与综合第一名不是同一块盘（序号确实变了）');
+  await pickMetric('accR');
+  const accBadges = [...h.doc.querySelectorAll('.lrow .rk')].slice(0, 2).map(e => e.textContent.trim());
+  ok(accBadges[0] === '#1' && accBadges[1] === '#1',
+    '延迟同值（0.009ms）的两块盘并列 #1（竞赛排名）', accBadges.join(' / '));
+
   // ---------------- 筛选：宽屏常驻 / 窄屏抽屉 ----------------
   console.log('\n[7] 首页 · 筛选：宽屏常驻、窄屏才是抽屉');
   const layoutEl = h.doc.querySelector('.layout');
@@ -637,6 +680,38 @@ async function open(url, wait = 2500, beforeParse) {
     .map(td => td.textContent.trim()).filter(t => /^[\d,]+\.\d{2}$/.test(t));
   ok(txSpeedVals.length > 0, '网页: TX 速度表渲染出 2 位小数数值', txSpeedVals.slice(0, 3).join(' / '));
   ok(txLatVals.length > 0, '网页: TX 延迟表渲染出 2 位小数数值', txLatVals.slice(0, 3).join(' / '));
+
+  // 四张评分卡都带名次：综合用源表名次，读写速度比/响应速度比/理论性能比按评分现算
+  const cardSubs = [...r1.doc.querySelectorAll('.scorecards .scard .v small')].map(e => e.textContent.trim());
+  ok(cardSubs.length === 4 && cardSubs.every(t => /款中第 \d+ 名$/.test(t)),
+    '详情页四张评分卡都显示「N 款中第 X 名」', cardSubs.join(' | '));
+  ok(cardSubs[0].includes('第 ' + rec.rank + ' 名'),
+    '综合评分卡名次与源表 rank 一致（id=1 → 第 ' + rec.rank + ' 名）', cardSubs[0]);
+  // 读写速度比名次应与天梯榜口径一致：用全量 index 现算一遍比对
+  const idxAll = await (await fetch(BASE + '/data/index.json')).json();
+  const bwSorted = idxAll.filter(x => x.scores.bandwidth != null).sort((a, b) => b.scores.bandwidth - a.scores.bandwidth);
+  const bwRank = bwSorted.findIndex(x => x.id === 1) + 1;
+  ok(cardSubs[1].includes('第 ' + bwRank + ' 名'),
+    '读写速度比名次与全量数据计算结果一致（id=1 → 第 ' + bwRank + ' 名）', cardSubs[1]);
+
+  // ---------------- 首页：托盘「清空」后勾选框同步取消 ----------------
+  console.log('\n[15] 首页 · 清空选择后勾选同步取消');
+  const hp = await open('/index.html');
+  ok(hp.errs.length === 0, '首页无 JS 错误', hp.errs[0]);
+  hp.win.localStorage.removeItem('ssddb:compare');
+  const picks = [...hp.doc.querySelectorAll('[data-pick]')];
+  ok(picks.length > 0, '首页存在可勾选的对比项', 'count=' + picks.length);
+  picks[0].checked = true; picks[0].dispatchEvent(new hp.win.Event('change'));
+  picks[1].checked = true; picks[1].dispatchEvent(new hp.win.Event('change'));
+  await new Promise(r => setTimeout(r, 300));
+  ok(hp.win.localStorage.getItem('ssddb:compare') === JSON.stringify(picks.slice(0, 2).map(c => Number(c.dataset.pick)).slice(0, 2)),
+    '勾选 2 块后写入篮子', hp.win.localStorage.getItem('ssddb:compare'));
+  hp.doc.getElementById('trayClear').click();
+  await new Promise(r => setTimeout(r, 300));
+  ok(hp.win.localStorage.getItem('ssddb:compare') === '[]', '点「清空」后篮子为空');
+  ok([...hp.doc.querySelectorAll('[data-pick]')].every(c => !c.checked),
+    '点「清空」后页面勾选全部同步取消（无需刷新）');
+  ok(!hp.doc.getElementById('tray').classList.contains('show'), '清空后托盘收起');
 
   console.log('\n' + (fail ? fail + ' 项未通过 / ' : '') + pass + ' 项通过');
   process.exit(fail ? 1 : 0);

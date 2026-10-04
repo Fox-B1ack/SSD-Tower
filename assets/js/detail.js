@@ -75,6 +75,14 @@ function render() {
   const r = REC;
   const picked = Basket.has(r.id);
 
+  // 四项评分各自的全局名次：综合排名用源表名次，其余三项按评分在全部硬盘里计算（同值同名次）
+  const scoreRanks = {};
+  SCORE_DEFS.forEach(s => {
+    scoreRanks[s.k] = s.k === 'overall'
+      ? (r.rank ?? null)
+      : (computeRanks(IDX, x => x.scores[s.k], false).get(r.id) ?? null);
+  });
+
   const head = `
     <div class="dhead">
       <div class="title">
@@ -94,7 +102,7 @@ function render() {
         ${SCORE_DEFS.map((s, i) => `
           <div class="scard ${i === 0 ? 'hero' : ''}" title="${UI.esc(s.desc)}">
             <div class="k">${s.label}</div>
-            <div class="v">${Fmt.score(r.scores[s.k])}<small>${i === 0 ? '/ ' + IDX.length + ' 款中第 ' + (r.rank || '—') + ' 名' : ''}</small></div>
+            <div class="v">${Fmt.score(r.scores[s.k])}<small>/ ${IDX.length} 款中第 ${scoreRanks[s.k] ?? '—'} 名</small></div>
           </div>`).join('')}
       </div>
     </div>`;
@@ -227,7 +235,7 @@ function renderOverview() {
   const cards = [
     {
       title: '四项评分',
-      sub: `基准盘 = 1.000，数值越高越好；排在 ${IDX.length} 款中的第 ${r.rank || '—'} 名`,
+      sub: `基准盘 长江存储 PC411 1T ，数值越高越好；排在 ${IDX.length} 款中的第 ${r.rank || '—'} 名`,
       shape: 'bar', key: 'scores',
       draw: el => Chart.hbar(el, {
         items: scoreItems, max: Math.max(...scoreItems.map(s => s.value), 1) * 1.1

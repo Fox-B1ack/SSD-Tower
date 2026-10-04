@@ -589,3 +589,38 @@ footer.site-footer .container { display: flex; gap: 16px; flex-wrap: wrap; justi
 .prose table { border-collapse: collapse; font-size: 13px; }
 .prose th, .prose td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
 .prose th { background: var(--surface-2); }
+
+/* ---------------- 移动端适配（≤640px：主流手机 CSS 宽度 320–430px） ----------------
+   顶栏原本是「不换行的 58px 单行」，375px 宽度下放不下：
+   导航链接被压成一字一行竖排、「对比」按钮被挤出屏幕约 96px。
+   改为两行：第 1 行 = 标志 + 导航 + 对比；第 2 行 = 搜索框占满整行。
+   导航链接强制 white-space:nowrap，从根上杜绝竖排。 */
+@media (max-width: 640px) {
+  .site-header .container {
+    flex-wrap: wrap;
+    height: auto;
+    padding: 8px 12px;
+    gap: 6px 10px;
+  }
+  .logo > span:last-child { display: none; }   /* 只留 SSD 标志，给导航腾位 */
+  .nav { flex: 1 1 auto; justify-content: center; min-width: 0; }
+  .nav a { padding: 5px 10px; font-size: 13px; white-space: nowrap; }
+  .header-search { order: 3; flex: 1 1 100%; max-width: none; min-width: 0; }
+  .header-search input { min-width: 0; }
+
+  /* 工具栏/视图条里的下拉框允许收缩：
+     最长选项名（如「AS SSD 访问延迟·读 (ms, 越低越好)」）的固有宽度
+     不再撑出横向滚动；筛选、对比页的控件同理 */
+  .field { min-width: 0; }
+  select.control { min-width: 0; max-width: 100%; }
+  .field select { flex: 1 1 auto; min-width: 0; }
+  /* 分段控件（天梯图/列表、图表方式等）不许被 flex 压缩——
+     .seg 自带 overflow:hidden，被压缩时会静默裁掉按钮文字 */
+  .seg { flex-shrink: 0; }
+  .toolbar, .viewbar { padding-left: 12px; padding-right: 12px; }
+}
+/* 320px 级小屏（iPhone SE 一类）再收一档 */
+@media (max-width: 380px) {
+  .nav a { padding: 4px 8px; font-size: 12px; }
+  .header-actions .btn-sm { padding: 0 8px; }
+}

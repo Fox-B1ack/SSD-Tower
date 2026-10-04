@@ -92,8 +92,11 @@ const Basket = {
     } catch (e) { return []; }
   },
   set(ids) {
-    try { localStorage.setItem(this.KEY, JSON.stringify(ids.slice(0, this.MAX))); } catch (e) {}
+    const kept = ids.slice(0, this.MAX);
+    try { localStorage.setItem(this.KEY, JSON.stringify(kept)); } catch (e) {}
     UI.renderTray();
+    // 广播篮子变化，让页面上的勾选框（data-pick）能同步状态（如托盘「清空」后取消勾选）
+    document.dispatchEvent(new CustomEvent('basketchange', { detail: { ids: kept } }));
   },
   has(id) { return this.get().includes(id); },
   toggle(id) {
@@ -120,6 +123,25 @@ const Basket = {
   clear() { this.set([]); },
   count() { return this.get().length; }
 };
+
+/* ---------------- 指标排名（天梯榜 / 详情页共用） ---------------- */
+
+/**
+ * 竞赛排名：同值同名次（1,2,2,4…），取不到数值的不参与排名。
+ * 返回 Map(id -> 名次|null)，rows 为全量数据以保证名次是全局的。
+ */
+function computeRanks(rows, get, lowBetter) {
+  const map = new Map();
+  const items = rows
+    .map(r => ({ id: r.id, v: get(r) }))
+    .filter(x => x.v != null && !isNaN(x.v));
+  items.sort((a, b) => (lowBetter ? a.v - b.v : b.v - a.v));
+  for (let i = 0; i < items.length; i++) {
+    if (i > 0 && items[i].v === items[i - 1].v) map.set(items[i].id, map.get(items[i - 1].id));
+    else map.set(items[i].id, i + 1);
+  }
+  return map;
+}
 
 /* ---------------- 指标定义（详情页 / 对比页共用） ---------------- */
 

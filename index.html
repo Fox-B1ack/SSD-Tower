@@ -36,30 +36,20 @@
         </button>
         <span class="count">共 <b id="countNum">0</b> 款硬盘</span>
         <span class="spacer"></span>
-        <label class="field">排序
+        <label class="field">排序 / 指标
           <select class="control" id="sortBy">
             <option value="rank">综合排名（天梯）</option>
             <option value="overall">综合评分</option>
             <option value="bandwidth">读写速度比</option>
             <option value="latency">响应速度比</option>
             <option value="theoretical">理论性能比</option>
-            <option value="seqRead">标称顺序读取</option>
-            <option value="cdmSeqR">CDM 实测顺序读取</option>
-            <option value="cdm4kR">CDM 实测 4K 随机读</option>
-            <option value="capacityGB">容量</option>
-          </select>
-        </label>
-        <label class="field">指标
-          <select class="control" id="metricSel">
-            <option value="overall">综合评分</option>
-            <option value="bandwidth">读写速度比</option>
-            <option value="latency">响应速度比</option>
-            <option value="theoretical">理论性能比</option>
             <option value="cdmSeqR">CDM 顺序读取 (MB/s)</option>
             <option value="cdmSeqW">CDM 顺序写入 (MB/s)</option>
-            <option value="cdm4kR">CDM 4K 随机读 Q8T8</option>
-            <option value="asssdSeqR">AS SSD 顺序读取</option>
-            <option value="accR">AS SSD 访问延迟(读, 越低越好)</option>
+            <option value="cdm4kR">CDM 4K 随机读 (MB/s)</option>
+            <option value="asssdSeqR">AS SSD 顺序读取 (MB/s)</option>
+            <option value="accR">AS SSD 访问延迟·读 (ms, 越低越好)</option>
+            <option value="seqRead">标称顺序读取 (MB/s)</option>
+            <option value="capacityGB">容量 (GB)</option>
           </select>
         </label>
         <div class="seg" id="viewSeg">

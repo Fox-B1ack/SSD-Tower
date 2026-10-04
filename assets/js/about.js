@@ -70,7 +70,7 @@ async function init() {
         ${SCORE_DEFS.map(s => `<tr><th>${s.label}</th><td>${s.desc}</td></tr>`).join('')}
       </tbody>
     </table>
-    <p class="mini-note">所有评分均以基准盘 = 1.000 做归一化，数值越高越好。天梯榜默认按<b>综合评分</b>排序。</p>
+    <p class="mini-note">所有评分均以基准盘 长江存储 PC411 1T 做归一化，数值越高越好。天梯榜默认按<b>综合评分</b>排序。</p>
 
     <h2>使用说明</h2>
     <ul>
